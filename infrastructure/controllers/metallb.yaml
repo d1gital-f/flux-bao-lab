@@ -31,3 +31,9 @@ spec:
     crds: Create
   upgrade:
     crds: CreateReplace
+  values:
+    speaker:
+      frr:
+        enabled: false
+    frrk8s:
+      enabled: false
