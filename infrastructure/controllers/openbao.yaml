@@ -36,3 +36,5 @@ spec:
         enabled: true
       ha:
         enabled: false
+    ui:
+      enabled: true
