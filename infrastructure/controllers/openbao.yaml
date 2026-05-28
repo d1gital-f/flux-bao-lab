@@ -33,8 +33,37 @@ spec:
   values:
     server:
       standalone:
-        enabled: true
-      ha:
         enabled: false
+      ha:
+        enabled: true
+        replicas: 3
+        raft:
+          enabled: true
+          setNodeId: true
+          config: |
+            ui = true
+            listener "tcp" {
+              tls_disable = 1
+              address = "[::]:8200"
+              cluster_address = "[::]:8201"
+            }
+            storage "raft" {
+              path = "/openbao/data"
+              retry_join {
+                leader_api_addr = "http://openbao-0.openbao-internal:8200"
+              }
+              retry_join {
+                leader_api_addr = "http://openbao-1.openbao-internal:8200"
+              }
+              retry_join {
+                leader_api_addr = "http://openbao-2.openbao-internal:8200"
+              }
+            }
+            service_registration "kubernetes" {}
+      dataStorage:
+        enabled: true
+        size: 1Gi
+        accessMode: ReadWriteOnce
+      updateStrategyType: "OnDelete"
     ui:
       enabled: true
