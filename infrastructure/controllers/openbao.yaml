@@ -36,7 +36,7 @@ spec:
         enabled: false
       ha:
         enabled: true
-        replicas: 3
+        replicas: 2
         raft:
           enabled: true
           setNodeId: true
@@ -54,9 +54,6 @@ spec:
               }
               retry_join {
                 leader_api_addr = "http://openbao-1.openbao-internal:8200"
-              }
-              retry_join {
-                leader_api_addr = "http://openbao-2.openbao-internal:8200"
               }
             }
             service_registration "kubernetes" {}
