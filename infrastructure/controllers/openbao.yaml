@@ -64,3 +64,4 @@ spec:
       updateStrategyType: "OnDelete"
     ui:
       enabled: true
+      serviceType: LoadBalancer
