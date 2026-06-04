@@ -1,29 +1,38 @@
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
 metadata:
   name: flux-operator-mcp
   namespace: flux-system
 spec:
-  type: oci
-  interval: 1h
-  url: oci://ghcr.io/controlplaneio-fluxcd/charts
----
-apiVersion: helm.toolkit.fluxcd.io/v2
-kind: HelmRelease
-metadata:
-  name: flux-operator-mcp
-  namespace: flux-system
-spec:
-  interval: 10m
-  chart:
-    spec:
-      chart: flux-operator-mcp
-      sourceRef:
-        kind: HelmRepository
-        name: flux-operator-mcp
-      interval: 5m
-  values:
-    transport: http        # streamable HTTP; use 'sse' if your client prefers SSE
-    readonly: true         # flip to false only if you want write operations
-    networkPolicy:
-      create: false        # we manage our own policy for external access
+  inputs:
+    - readonly: true
+  resources:
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: OCIRepository
+      metadata:
+        name: << inputs.provider.name >>
+        namespace: << inputs.provider.namespace >>
+      spec:
+        interval: 60m
+        url: oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator-mcp
+        layerSelector:
+          mediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
+          operation: copy
+        ref:
+          semver: "*"
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: << inputs.provider.name >>
+        namespace: << inputs.provider.namespace >>
+      spec:
+        serviceAccountName: flux-operator
+        chartRef:
+          kind: OCIRepository
+          name: << inputs.provider.name >>
+        interval: 30m
+        values:
+          transport: http
+          readonly: << inputs.readonly >>
+          networkPolicy:
+            create: false
