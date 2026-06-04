@@ -25,7 +25,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: mcp.prod1.fmgb.lab
+    - host: fluxmcp.prod1.fmgb.lab
       http:
         paths:
           - path: /

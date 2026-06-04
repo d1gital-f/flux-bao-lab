@@ -7,4 +7,4 @@ spec:
   valuesContent: |-
     service:
       annotations:
-        metallb.universe.tf/loadBalancerIPs: "192.168.252.200"
+        metallb.universe.tf/loadBalancerIPs: "192.168.252.249"
