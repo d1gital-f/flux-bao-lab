@@ -4,4 +4,5 @@ resources:
   - flux-instance.yaml
   - infra-controllers.yaml
   - infra-configs.yaml
+  - apps-platform.yaml
   - apps.yaml

@@ -6,5 +6,3 @@ resources:
   - kagent-reader-agent.yaml
   - kagent-coordinator-agent.yaml
   - kagent-modelconfig.yaml
-  - kagent.yaml
-  - ollama.yaml

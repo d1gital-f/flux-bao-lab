@@ -1,0 +1,18 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps-platform
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: infra-configs
+  interval: 10m
+  retryInterval: 1m
+  # generous: first install pulls the 2.7GB ollama image and the model
+  timeout: 15m
+  prune: true
+  wait: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: ./apps/platform
