@@ -9,4 +9,5 @@ resources:
   - flux-mcp-netpol.yaml
   - ingress-flux.yaml
   - ingress-openbao.yaml
+  - kagent-namespace.yaml
   - ingress-kagent.yaml

@@ -82,13 +82,14 @@ infrastructure/configs/
   flux-mcp-netpol.yaml      # Flux MCP network policy
   ingress-flux.yaml         # Traefik Ingress for Flux UI + Flux MCP
   ingress-openbao.yaml      # Traefik Ingress for OpenBao UI
+  kagent-namespace.yaml     # kagent namespace (needed by ingress-kagent and the apps layer)
   ingress-kagent.yaml       # Traefik Ingress for kagent UI + kagent MCP
 
 apps/
   kustomization.yaml        # explicit Kustomize resource list
   podinfo.yaml              # podinfo HelmRepository + HelmRelease + PDB
   podinfo-ingress.yaml      # Traefik Ingress for podinfo
-  kagent.yaml               # kagent namespace + CRDs + kagent HelmReleases
+  kagent.yaml               # kagent CRDs + kagent HelmReleases
   ollama.yaml               # in-cluster Ollama Deployment/PVC/Service
   kagent-modelconfig.yaml   # kagent Ollama ModelConfig, qwen2.5:3b, num_ctx=8192
   kagent-reader-agent.yaml  # lab-k8s-reader kagent Agent
