@@ -7,7 +7,7 @@ spec:
   description: Read-only Kubernetes lab assistant.
   type: Declarative
   declarative:
-    modelConfig: default-model-config
+    modelConfig: lab-ollama-model-config
     systemMessage: |-
       You are a read-only Kubernetes lab assistant.
       Help inspect cluster state. Do not suggest destructive changes unless asked.
