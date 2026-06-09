@@ -16,9 +16,19 @@ spec:
     spec:
       containers:
         - name: ollama
-          image: ollama/ollama:latest
+          image: ollama/ollama:0.30.7
           ports:
             - containerPort: 11434
+          env:
+            # Keep one model resident and serve one request at a time so nested
+            # coordinator+reader inference cannot spike past the worker's RAM
+            # (the 4Gi-node build OOMKilled here, exit 137).
+            - name: OLLAMA_MAX_LOADED_MODELS
+              value: "1"
+            - name: OLLAMA_NUM_PARALLEL
+              value: "1"
+            - name: OLLAMA_KEEP_ALIVE
+              value: "5m"
           volumeMounts:
             - name: ollama-data
               mountPath: /root/.ollama
@@ -30,7 +40,7 @@ spec:
                   - -c
                   - |
                     sleep 10
-                    ollama pull llama3.2 || true
+                    ollama pull qwen2.5:3b || true
           resources:
             requests:
               cpu: "500m"

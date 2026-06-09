@@ -4,9 +4,9 @@ metadata:
   name: lab-ollama-model-config
   namespace: kagent
 spec:
-  model: llama3.2
+  model: qwen2.5:3b
   provider: Ollama
   ollama:
     host: http://ollama.kagent.svc.cluster.local:11434
     options:
-      num_ctx: "4096"
+      num_ctx: "8192"
