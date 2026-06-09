@@ -1079,3 +1079,390 @@ Claude Desktop:
   kagent-lab can list agents
   lab-k8s-reader can list Kubernetes namespaces
 ```
+
+---
+
+## 17. Latest repo addendum: coordinator, qwen2.5, and stable Ollama settings
+
+This section records the current repository state after the baseline runbook above was written. It is intentionally additive: earlier sections are still useful for the full install flow, but the current manifests have moved from the original `llama3.2` baseline to a more coordinator-friendly local model setup.
+
+### 17.1 Current kagent agents
+
+The current `apps/` Kustomize bundle includes both the Kubernetes reader specialist and the coordinator agent:
+
+```text
+apps/
+  kagent-test-agent.yaml          # lab-k8s-reader
+  kagent-coordinator-agent.yaml   # lab-coordinator
+```
+
+Verify the files are listed:
+
+```zsh
+cat apps/kustomization.yaml
+```
+
+Expected resources include:
+
+```yaml
+resources:
+  - podinfo.yaml
+  - podinfo-ingress.yaml
+  - kagent-test-agent.yaml
+  - kagent-coordinator-agent.yaml
+```
+
+Expected agents after reconciliation:
+
+```zsh
+kubectl -n kagent get agents
+```
+
+Expected names:
+
+```text
+lab-k8s-reader
+lab-coordinator
+```
+
+### 17.2 Agent roles
+
+```text
+lab-coordinator
+  - Claude-facing entrypoint agent
+  - owns the plan
+  - delegates live Kubernetes fact gathering to lab-k8s-reader
+  - synthesizes the final answer
+  - must stay read-only
+
+lab-k8s-reader
+  - specialist read-only Kubernetes fact-gathering agent
+  - uses kagent-tools MCP to query the Kubernetes API
+  - returns factual cluster state to the coordinator or to Claude
+```
+
+Current intended flow:
+
+```text
+Claude Desktop
+  -> kagent-lab MCP bridge
+  -> kagent-controller /mcp
+  -> lab-coordinator
+  -> lab-k8s-reader
+  -> kagent-tools MCP
+  -> Kubernetes API
+```
+
+Direct reader flow remains valid for troubleshooting:
+
+```text
+Claude Desktop
+  -> kagent-lab MCP bridge
+  -> kagent-controller /mcp
+  -> lab-k8s-reader
+  -> kagent-tools MCP
+  -> Kubernetes API
+```
+
+### 17.3 Current Ollama model config
+
+The current `infrastructure/configs/kagent-modelconfig.yaml` uses `qwen2.5:3b`, not the earlier `llama3.2` baseline:
+
+```yaml
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: lab-ollama-model-config
+  namespace: kagent
+spec:
+  model: qwen2.5:3b
+  provider: Ollama
+  ollama:
+    host: http://ollama.kagent.svc.cluster.local:11434
+    options:
+      num_ctx: "8192"
+```
+
+Verify after reconciliation:
+
+```zsh
+kubectl -n kagent get modelconfig lab-ollama-model-config -o yaml
+kubectl -n kagent get agent lab-k8s-reader -o jsonpath='{.spec.declarative.modelConfig}{"\n"}'
+kubectl -n kagent get agent lab-coordinator -o jsonpath='{.spec.declarative.modelConfig}{"\n"}'
+```
+
+Expected for both agents:
+
+```text
+lab-ollama-model-config
+```
+
+### 17.4 Current Ollama deployment behavior
+
+The current `infrastructure/controllers/ollama.yaml` pins the Ollama image and pulls `qwen2.5:3b` through the container lifecycle hook:
+
+```text
+image: ollama/ollama:0.30.7
+model pulled: qwen2.5:3b
+```
+
+It also limits concurrency to reduce memory spikes on the small Multipass worker nodes:
+
+```yaml
+env:
+  - name: OLLAMA_MAX_LOADED_MODELS
+    value: "1"
+  - name: OLLAMA_NUM_PARALLEL
+    value: "1"
+  - name: OLLAMA_KEEP_ALIVE
+    value: "5m"
+```
+
+Verify model availability:
+
+```zsh
+kubectl -n kagent exec deploy/ollama -- ollama list
+```
+
+Expected model:
+
+```text
+qwen2.5:3b
+```
+
+If the model is missing:
+
+```zsh
+kubectl -n kagent exec deploy/ollama -- ollama pull qwen2.5:3b
+```
+
+Test the model API from inside the cluster:
+
+```zsh
+kubectl -n kagent run ollama-check --rm -it \
+  --image=curlimages/curl \
+  --restart=Never \
+  -- curl -s http://ollama.kagent.svc.cluster.local:11434/api/tags
+```
+
+### 17.5 Coordinator validation
+
+After Flux applies the apps Kustomization:
+
+```zsh
+kubectl -n kagent get agent lab-coordinator -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}{"\n"}{end}'
+kubectl -n kagent get deploy lab-coordinator
+kubectl -n kagent logs deploy/lab-coordinator --tail=80
+```
+
+Expected conditions:
+
+```text
+Accepted=True Reconciled
+Ready=True DeploymentReady
+```
+
+Basic Claude test:
+
+```text
+Use kagent-lab to list available agents.
+```
+
+Expected agents include:
+
+```text
+lab-k8s-reader
+lab-coordinator
+```
+
+Coordinator test:
+
+```text
+Use the lab-coordinator kagent agent. Delegate to lab-k8s-reader to list Kubernetes namespaces, then summarize only the returned namespace names.
+```
+
+If coordinator delegation is unreliable, test the direct reader path:
+
+```text
+Use the lab-k8s-reader kagent agent to list Kubernetes namespaces.
+```
+
+### 17.6 Known caveat: local small-model tool calling
+
+The local Ollama model is intentionally lightweight for a laptop lab. It can be slower and less reliable than a hosted frontier model for structured tool calling and multi-agent delegation.
+
+Useful diagnosis signals:
+
+```zsh
+kubectl -n kagent logs deploy/lab-coordinator --since=10m
+kubectl -n kagent logs deploy/lab-k8s-reader --since=10m
+kubectl -n kagent logs deploy/ollama --since=10m
+kubectl -n kagent get pods -o custom-columns=NAME:.metadata.name,READY:.status.containerStatuses[*].ready,RESTARTS:.status.containerStatuses[*].restartCount --no-headers | grep -E 'lab-k8s-reader|lab-coordinator|ollama'
+```
+
+If Ollama restarts, check for OOM kills:
+
+```zsh
+kubectl -n kagent describe pod -l app=ollama | grep -iE 'reason|oom|killed|exit|memory|cpu|restart' -A3 -B3
+```
+
+The three-Multipass-VM topology is fine for this lab. The resource-sensitive part is the Ollama worker pod, especially if nested coordinator-to-specialist requests are running on CPU only.
+
+---
+
+## 18. Clean rebuild from this repository
+
+Use this section when you want to wipe the lab cluster completely and recreate it from Git.
+
+### 18.1 Pre-wipe checks
+
+Run these before deleting VMs:
+
+```zsh
+git status --short
+git log --oneline -3
+kubectl kustomize clusters/flux-bao-test >/tmp/root.yaml
+kubectl kustomize infrastructure/controllers >/tmp/controllers.yaml
+kubectl kustomize infrastructure/configs >/tmp/configs.yaml
+kubectl kustomize apps >/tmp/apps.yaml
+```
+
+If `git status --short` shows uncommitted changes you want to preserve:
+
+```zsh
+git add .
+git commit -m "update lab runbook and manifests"
+git push
+```
+
+Confirm the latest pushed repository contains the coordinator and qwen model config:
+
+```zsh
+grep -n 'kagent-coordinator-agent.yaml' apps/kustomization.yaml
+grep -n 'qwen2.5:3b' infrastructure/configs/kagent-modelconfig.yaml infrastructure/controllers/ollama.yaml
+```
+
+### 18.2 Wipe the cluster
+
+This destroys the three Multipass VMs and all cluster-local data, including OpenBao Raft data, local-path PVCs, Ollama PVC contents, and all Kubernetes state.
+
+```zsh
+multipass delete --purge k3s-cp k3s-w1 k3s-w2
+rm -f ~/.kube/config
+```
+
+Optional local cleanup:
+
+```zsh
+rm -f openbao-init.json openbao-init.new.json
+```
+
+### 18.3 Recreate from scratch
+
+Start again from the install flow in this runbook:
+
+```text
+3. Install local tools
+4. Clone the repo
+5. Create the k3s cluster
+6. Align the MetalLB subnet
+7. Bootstrap Flux
+8. Kustomize layout and validation
+9. Access paths
+10. OpenBao initialization and unseal
+11. kagent, Ollama, and Claude Desktop MCP
+12. Claude Desktop MCP configuration
+```
+
+The critical rebuild sequence is:
+
+```zsh
+cd ~
+git clone https://github.com/d1gital-f/flux-bao-lab.git
+cd flux-bao-lab
+
+multipass launch 24.04 --name k3s-cp --cpus 2 --memory 4G --disk 20G
+multipass launch 24.04 --name k3s-w1 --cpus 2 --memory 4G --disk 20G
+multipass launch 24.04 --name k3s-w2 --cpus 2 --memory 4G --disk 20G
+```
+
+Then follow section 5 exactly to install k3s, section 6 to retarget the subnet if needed, and section 7 to bootstrap Flux.
+
+### 18.4 Post-rebuild acceptance checks
+
+Flux:
+
+```zsh
+flux get kustomizations
+flux get helmreleases -A
+```
+
+Expected:
+
+```text
+flux-system=True
+infra-controllers=True
+infra-configs=True
+apps=True
+```
+
+Networking:
+
+```zsh
+kubectl get svc -A | grep LoadBalancer
+kubectl get ingress -A
+./scripts/metallb-hosts.zsh
+```
+
+Ollama and kagent:
+
+```zsh
+kubectl -n kagent get pods,svc,ingress
+kubectl -n kagent get agents,modelconfigs
+kubectl -n kagent exec deploy/ollama -- ollama list
+kubectl -n kagent get agent lab-k8s-reader -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}{"\n"}{end}'
+kubectl -n kagent get agent lab-coordinator -o jsonpath='{range .status.conditions[*]}{.type}={.status} {.reason}{"\n"}{end}'
+```
+
+Expected:
+
+```text
+qwen2.5:3b available in Ollama
+lab-ollama-model-config present
+lab-k8s-reader Accepted=True Ready=True
+lab-coordinator Accepted=True Ready=True
+```
+
+OpenBao:
+
+```zsh
+kubectl -n openbao get pods
+kubectl -n openbao exec openbao-0 -- bao status
+```
+
+If sealed, use section 10 to initialize or unseal.
+
+Claude Desktop:
+
+```text
+Use kagent-lab to list available agents.
+```
+
+Expected:
+
+```text
+lab-k8s-reader
+lab-coordinator
+```
+
+Then test direct reader first:
+
+```text
+Use the lab-k8s-reader kagent agent to list Kubernetes namespaces.
+```
+
+Then test the coordinator:
+
+```text
+Use the lab-coordinator kagent agent. Delegate to lab-k8s-reader to list Kubernetes namespaces, then summarize only the returned namespace names.
+```
