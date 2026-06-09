@@ -4,3 +4,4 @@ resources:
   - podinfo.yaml
   - podinfo-ingress.yaml
   - kagent-test-agent.yaml
+  - kagent-coordinator-agent.yaml
