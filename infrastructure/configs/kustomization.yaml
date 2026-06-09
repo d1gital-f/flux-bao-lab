@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - metallb-config.yaml
+  - traefik-pin.yaml
+  - flux-ui-service.yaml
+  - flux-web-netpol.yaml
+  - flux-mcp-service.yaml
+  - flux-mcp-netpol.yaml
+  - ingress-flux.yaml
+  - ingress-openbao.yaml
+  - ingress-kagent.yaml
