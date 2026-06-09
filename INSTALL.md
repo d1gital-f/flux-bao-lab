@@ -1,6 +1,6 @@
 # flux-bao-lab — Full Install and Troubleshooting Runbook
 
-A reproducible GitOps lab on macOS: a three-node k3s cluster on Multipass VMs, bootstrapped with the Flux Operator and driven from this Git repository. It deploys MetalLB, OpenBao, podinfo, Flux Web UI, Flux MCP, kagent, in-cluster Ollama, and a test kagent Kubernetes reader agent.
+A reproducible GitOps lab on macOS: a three-node k3s cluster on Multipass VMs, bootstrapped with the Flux Operator and driven from this Git repository. It deploys MetalLB, OpenBao, podinfo, Flux Web UI, Flux MCP, kagent, in-cluster Ollama, and two lab kagent agents: `lab-k8s-reader` and `lab-coordinator`.
 
 Every user-facing service is intentionally reachable in two ways:
 
@@ -42,6 +42,8 @@ Flux reconciliation order:
 flux-system -> infra-controllers -> infra-configs -> apps
 ```
 
+kagent and Ollama deploy in the `apps` layer so their `LoadBalancer` services are created after the MetalLB pool from `infra-configs` exists. The kagent Helm install waits for LoadBalancer IPs, so it must run after the pool is in place.
+
 Access model:
 
 ```text
@@ -69,8 +71,6 @@ infrastructure/controllers/
   metallb.yaml              # MetalLB HelmRepository + HelmRelease
   openbao.yaml              # OpenBao HelmRepository + HelmRelease
   flux-mcp.yaml             # Flux MCP ResourceSet
-  kagent.yaml               # kagent CRDs + kagent HelmReleases
-  ollama.yaml               # in-cluster Ollama Deployment/PVC/Service
 
 infrastructure/configs/
   kustomization.yaml        # explicit Kustomize resource list
@@ -83,16 +83,20 @@ infrastructure/configs/
   ingress-flux.yaml         # Traefik Ingress for Flux UI + Flux MCP
   ingress-openbao.yaml      # Traefik Ingress for OpenBao UI
   ingress-kagent.yaml       # Traefik Ingress for kagent UI + kagent MCP
-  kagent-modelconfig.yaml   # kagent Ollama ModelConfig, num_ctx=4096
 
 apps/
   kustomization.yaml        # explicit Kustomize resource list
   podinfo.yaml              # podinfo HelmRepository + HelmRelease + PDB
   podinfo-ingress.yaml      # Traefik Ingress for podinfo
-  kagent-test-agent.yaml    # lab-k8s-reader kagent Agent
+  kagent.yaml               # kagent namespace + CRDs + kagent HelmReleases
+  ollama.yaml               # in-cluster Ollama Deployment/PVC/Service
+  kagent-modelconfig.yaml   # kagent Ollama ModelConfig, qwen2.5:3b, num_ctx=8192
+  kagent-reader-agent.yaml  # lab-k8s-reader kagent Agent
+  kagent-coordinator-agent.yaml # lab-coordinator kagent Agent
 
 scripts/
   metallb-hosts.zsh         # prints copy/paste /etc/hosts block
+  lab-urls.zsh              # prints Ingress and direct LoadBalancer URLs
 ```
 
 ---
@@ -137,9 +141,9 @@ cd flux-bao-lab
 Launch VMs:
 
 ```zsh
-multipass launch 24.04 --name k3s-cp --cpus 2 --memory 4G --disk 20G
-multipass launch 24.04 --name k3s-w1 --cpus 2 --memory 4G --disk 20G
-multipass launch 24.04 --name k3s-w2 --cpus 2 --memory 4G --disk 20G
+multipass launch 24.04 --name k3s-cp --cpus 2 --memory 2G --disk 20G
+multipass launch 24.04 --name k3s-w1 --cpus 2 --memory 8G --disk 20G
+multipass launch 24.04 --name k3s-w2 --cpus 2 --memory 8G --disk 20G
 ```
 
 Create server config before installing k3s:
@@ -479,17 +483,17 @@ cp openbao-init.json ~/openbao-init.backup.json
 
 ### 11.1 kagent install
 
-kagent is installed by `infrastructure/controllers/kagent.yaml`:
+`apps/kagent.yaml` installs kagent through Helm and exposes both the UI and MCP/API path through direct MetalLB services. It lives in the `apps` layer so its `LoadBalancer` services are created after the MetalLB pool from `infra-configs` exists:
 
-```text
-kagent-crds HelmRelease
-kagent HelmRelease
-kagent-controller LoadBalancer Service
-kagent-ui LoadBalancer Service
-kagent-tools enabled
-kmcp enabled
-packaged sample agents disabled
-```
+| Item | Purpose |
+|---|---|
+| `kagent-crds` HelmRelease | Installs the kagent CRDs |
+| `kagent` HelmRelease | Installs the kagent controller, UI, tools, PostgreSQL, and kmcp components |
+| `kagent-controller` Service | Exposes kagent MCP/API access as a direct MetalLB `LoadBalancer` |
+| `kagent-ui` Service | Exposes the kagent UI as a direct MetalLB `LoadBalancer` |
+| `kagent-tools` | Enables the in-cluster MCP tool server used by agents |
+| `kmcp` | Enables kagent MCP integration |
+| Packaged sample agents | Disabled; this lab defines its own agents in `apps/` |
 
 Verify:
 
@@ -536,13 +540,15 @@ That means the route reaches kagent. It is not a failure.
 
 ### 11.3 Ollama
 
-Ollama is installed by `infrastructure/controllers/ollama.yaml`:
+Ollama is installed by `apps/ollama.yaml`:
 
 ```text
-Deployment: ollama
-PVC:        ollama-data, 10Gi
-Service:    ollama.kagent.svc.cluster.local:11434
-Model:      llama3.2 pulled by postStart hook
+Deployment:  ollama
+Image:       ollama/ollama:0.30.7
+PVC:         ollama-data, 10Gi
+Service:     ollama.kagent.svc.cluster.local:11434
+Model:       qwen2.5:3b pulled by postStart hook
+Concurrency: one loaded model and one parallel request to reduce RAM spikes
 ```
 
 Verify:
@@ -556,7 +562,7 @@ kubectl -n kagent exec deploy/ollama -- ollama list
 If needed:
 
 ```zsh
-kubectl -n kagent exec deploy/ollama -- ollama pull llama3.2
+kubectl -n kagent exec deploy/ollama -- ollama pull qwen2.5:3b
 ```
 
 Test API from inside the cluster:
@@ -572,7 +578,7 @@ Direct model test:
 
 ```zsh
 kubectl -n kagent exec deploy/ollama -- \
-  ollama run llama3.2 "Reply with only: ok"
+  ollama run qwen2.5:3b "Reply with only: ok"
 ```
 
 ### 11.4 kagent ModelConfig
@@ -580,7 +586,7 @@ kubectl -n kagent exec deploy/ollama -- \
 The model config is GitOps-managed in:
 
 ```text
-infrastructure/configs/kagent-modelconfig.yaml
+apps/kagent-modelconfig.yaml
 ```
 
 It must be:
@@ -592,15 +598,15 @@ metadata:
   name: lab-ollama-model-config
   namespace: kagent
 spec:
-  model: llama3.2
+  model: qwen2.5:3b
   provider: Ollama
   ollama:
     host: http://ollama.kagent.svc.cluster.local:11434
     options:
-      num_ctx: "4096"
+      num_ctx: "8192"
 ```
 
-`num_ctx: "4096"` is important. `64000` caused agent disconnects/timeouts on the small CPU-only Multipass VM.
+`num_ctx: "8192"` is important. `64000` caused agent disconnects/timeouts on the small CPU-only Multipass VM.
 
 Verify:
 
@@ -608,12 +614,12 @@ Verify:
 kubectl -n kagent get modelconfig lab-ollama-model-config -o yaml
 ```
 
-### 11.5 kagent test agent
+### 11.5 kagent reader agent
 
-The test agent is in:
+The reader agent is in:
 
 ```text
-apps/kagent-test-agent.yaml
+apps/kagent-reader-agent.yaml
 ```
 
 It is named:
@@ -830,8 +836,29 @@ With explicit Kustomize, files must be listed in the directory `kustomization.ya
 
 ```zsh
 grep -R "your-file.yaml" infrastructure apps clusters
-kubectl kustomize infrastructure/configs | grep -i modelconfig
-flux tree kustomization infra-configs | grep -i modelconfig
+kubectl kustomize apps | grep -i modelconfig
+flux tree kustomization apps | grep -i modelconfig
+```
+
+### `apps` fails with `no matches for kind "Agent"` or `"ModelConfig"` on first boot
+
+Symptom:
+
+```text
+Agent/kagent/lab-k8s-reader dry-run failed: no matches for kind "Agent" in version "kagent.dev/v1alpha2"
+```
+
+This is expected on a clean bootstrap. The `apps` Kustomization applies the
+`Agent` and `ModelConfig` custom resources in the same reconcile that installs
+the `kagent-crds` HelmRelease, so the first attempt runs before the CRDs are
+registered. It self-heals on the next retry (`retryInterval: 1m`) once the
+CRDs chart has installed. Only investigate if it still fails after the kagent
+HelmReleases are Ready:
+
+```zsh
+flux get helmreleases -n kagent
+kubectl get crd | grep kagent
+flux reconcile kustomization apps
 ```
 
 ### `svclb-*` pods exist
@@ -959,11 +986,12 @@ kubectl -n kagent run ollama-check --rm -it \
   -- curl -s http://ollama.kagent.svc.cluster.local:11434/api/tags
 ```
 
-Expected: `llama3.2` is listed.
+Expected: `qwen2.5:3b` is listed.
 
 ### Agent disconnects mid-request
 
-Likely context too large or model too slow. Ensure:
+Likely context too large or model too slow. Lower the context window in
+`apps/kagent-modelconfig.yaml`, for example:
 
 ```yaml
 options:
@@ -973,7 +1001,6 @@ options:
 Then:
 
 ```zsh
-flux reconcile kustomization infra-configs
 flux reconcile kustomization apps
 kubectl -n kagent rollout restart deploy/lab-k8s-reader
 kubectl -n kagent rollout status deploy/lab-k8s-reader
@@ -1067,12 +1094,13 @@ kagent:
   kagent HelmRelease=True
   kagent-crds HelmRelease=True
   lab-k8s-reader Accepted=True Ready=True
+  lab-coordinator Accepted=True Ready=True
   lab-ollama-model-config Accepted=True
 
 Ollama:
   ollama pod Running
-  llama3.2 available
-  num_ctx=4096
+  qwen2.5:3b available
+  num_ctx=8192
 
 Claude Desktop:
   kagent-lab MCP bridge uses uvx mcp-proxy
@@ -1084,7 +1112,7 @@ Claude Desktop:
 
 ## 17. Latest repo addendum: coordinator, qwen2.5, and stable Ollama settings
 
-This section records the current repository state after the baseline runbook above was written. It is intentionally additive: earlier sections are still useful for the full install flow, but the current manifests have moved from the original `llama3.2` baseline to a more coordinator-friendly local model setup.
+This section records the current coordinator-specific repository state and validation steps. The main install flow above already reflects the current `qwen2.5:3b` model configuration.
 
 ### 17.1 Current kagent agents
 
@@ -1092,7 +1120,7 @@ The current `apps/` Kustomize bundle includes both the Kubernetes reader special
 
 ```text
 apps/
-  kagent-test-agent.yaml          # lab-k8s-reader
+  kagent-reader-agent.yaml        # lab-k8s-reader
   kagent-coordinator-agent.yaml   # lab-coordinator
 ```
 
@@ -1108,8 +1136,11 @@ Expected resources include:
 resources:
   - podinfo.yaml
   - podinfo-ingress.yaml
-  - kagent-test-agent.yaml
+  - kagent-reader-agent.yaml
   - kagent-coordinator-agent.yaml
+  - kagent-modelconfig.yaml
+  - kagent.yaml
+  - ollama.yaml
 ```
 
 Expected agents after reconciliation:
@@ -1166,7 +1197,7 @@ Claude Desktop
 
 ### 17.3 Current Ollama model config
 
-The current `infrastructure/configs/kagent-modelconfig.yaml` uses `qwen2.5:3b`, not the earlier `llama3.2` baseline:
+The current `apps/kagent-modelconfig.yaml` uses `qwen2.5:3b`:
 
 ```yaml
 apiVersion: kagent.dev/v1alpha2
@@ -1199,7 +1230,7 @@ lab-ollama-model-config
 
 ### 17.4 Current Ollama deployment behavior
 
-The current `infrastructure/controllers/ollama.yaml` pins the Ollama image and pulls `qwen2.5:3b` through the container lifecycle hook:
+The current `apps/ollama.yaml` pins the Ollama image and pulls `qwen2.5:3b` through the container lifecycle hook:
 
 ```text
 image: ollama/ollama:0.30.7
@@ -1339,7 +1370,7 @@ Confirm the latest pushed repository contains the coordinator and qwen model con
 
 ```zsh
 grep -n 'kagent-coordinator-agent.yaml' apps/kustomization.yaml
-grep -n 'qwen2.5:3b' infrastructure/configs/kagent-modelconfig.yaml infrastructure/controllers/ollama.yaml
+grep -n 'qwen2.5:3b' apps/kagent-modelconfig.yaml apps/ollama.yaml
 ```
 
 ### 18.2 Wipe the cluster
@@ -1381,9 +1412,9 @@ cd ~
 git clone https://github.com/d1gital-f/flux-bao-lab.git
 cd flux-bao-lab
 
-multipass launch 24.04 --name k3s-cp --cpus 2 --memory 4G --disk 20G
-multipass launch 24.04 --name k3s-w1 --cpus 2 --memory 4G --disk 20G
-multipass launch 24.04 --name k3s-w2 --cpus 2 --memory 4G --disk 20G
+multipass launch 24.04 --name k3s-cp --cpus 2 --memory 2G --disk 20G
+multipass launch 24.04 --name k3s-w1 --cpus 2 --memory 8G --disk 20G
+multipass launch 24.04 --name k3s-w2 --cpus 2 --memory 8G --disk 20G
 ```
 
 Then follow section 5 exactly to install k3s, section 6 to retarget the subnet if needed, and section 7 to bootstrap Flux.

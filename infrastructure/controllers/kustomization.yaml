@@ -4,5 +4,3 @@ resources:
   - metallb.yaml
   - openbao.yaml
   - flux-mcp.yaml
-  - kagent.yaml
-  - ollama.yaml

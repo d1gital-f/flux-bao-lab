@@ -4,7 +4,7 @@ metadata:
   name: lab-ollama-model-config
   namespace: kagent
 spec:
-  model: qwen2.5:3b
+  model: qwen3:4b
   provider: Ollama
   ollama:
     host: http://ollama.kagent.svc.cluster.local:11434

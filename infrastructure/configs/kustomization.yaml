@@ -10,4 +10,3 @@ resources:
   - ingress-flux.yaml
   - ingress-openbao.yaml
   - ingress-kagent.yaml
-  - kagent-modelconfig.yaml

@@ -8,9 +8,14 @@ spec:
     - name: infra-configs
   interval: 10m
   retryInterval: 1m
-  timeout: 5m
+  timeout: 10m
   prune: true
   wait: true
+  healthCheckExprs:
+    - apiVersion: kagent.dev/v1alpha2
+      kind: Agent
+      current: status.conditions.filter(e, e.type == 'Ready').all(e, e.status == 'True')
+      failed: status.conditions.filter(e, e.type == 'Ready').all(e, e.status == 'False')
   sourceRef:
     kind: GitRepository
     name: flux-system

@@ -40,7 +40,7 @@ spec:
                   - -c
                   - |
                     sleep 10
-                    ollama pull qwen2.5:3b || true
+                    ollama pull qwen3:4b || true
           resources:
             requests:
               cpu: "500m"

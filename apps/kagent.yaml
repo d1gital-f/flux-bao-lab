@@ -49,6 +49,7 @@ metadata:
   namespace: kagent
 spec:
   interval: 30m
+  timeout: 10m
   dependsOn:
     - name: kagent-crds
   chart:
