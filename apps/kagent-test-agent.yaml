@@ -1,0 +1,23 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: lab-k8s-reader
+  namespace: kagent
+spec:
+  description: Read-only Kubernetes lab assistant.
+  type: Declarative
+  declarative:
+    modelConfig: default-model-config
+    systemMessage: |-
+      You are a read-only Kubernetes lab assistant.
+      Help inspect cluster state. Do not suggest destructive changes unless asked.
+      Format responses in Markdown.
+    tools:
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: kagent-tool-server
+          toolNames:
+            - k8s_get_available_api_resources
+            - k8s_get_resources
