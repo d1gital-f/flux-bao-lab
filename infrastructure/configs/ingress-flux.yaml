@@ -35,22 +35,3 @@ spec:
                 name: flux-operator-mcp
                 port:
                   number: 9090
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: openbao-ui
-  namespace: openbao
-spec:
-  ingressClassName: traefik
-  rules:
-    - host: openbao.prod1.fmgb.lab
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: openbao-ui
-                port:
-                  number: 8200
