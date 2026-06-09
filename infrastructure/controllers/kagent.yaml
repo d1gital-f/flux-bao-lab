@@ -72,6 +72,14 @@ spec:
     providers:
       default: ollama
 
+    controller:
+      service:
+        type: LoadBalancer
+
+    ui:
+      service:
+        type: LoadBalancer
+
     # Keep the core kagent platform and in-cluster tool server.
     kmcp:
       enabled: true
