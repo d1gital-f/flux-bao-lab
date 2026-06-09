@@ -1,0 +1,39 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kagent-ui
+  namespace: kagent
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: kagent.prod1.fmgb.lab
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kagent-ui
+                port:
+                  number: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kagent-mcp
+  namespace: kagent
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: kagent-mcp.prod1.fmgb.lab
+      http:
+        paths:
+          - path: /mcp
+            pathType: Prefix
+            backend:
+              service:
+                name: kagent-controller
+                port:
+                  number: 8083
