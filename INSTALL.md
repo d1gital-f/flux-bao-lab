@@ -39,10 +39,18 @@ https://github.com/d1gital-f/flux-bao-lab
 Flux reconciliation order:
 
 ```text
-flux-system -> infra-controllers -> infra-configs -> apps
+flux-system -> infra-controllers -> infra-configs -> apps-platform -> apps
 ```
 
-kagent and Ollama deploy in the `apps` layer so their `LoadBalancer` services are created after the MetalLB pool from `infra-configs` exists. The kagent Helm install waits for LoadBalancer IPs, so it must run after the pool is in place.
+kagent and Ollama deploy in the `apps-platform` layer so their `LoadBalancer` services are created after the MetalLB pool from `infra-configs` exists. The kagent Helm install waits for LoadBalancer IPs, so it must run after the pool is in place.
+
+`apps-platform` and `apps` are separate Flux Kustomizations because the kagent
+HelmReleases install the kagent CRDs, while the Agent and ModelConfig resources
+consume those CRDs. Flux server-side dry-runs every resource in a Kustomization
+before applying any of them, so CRD providers and CRD consumers cannot share one
+Kustomization on a fresh cluster: the consumers fail validation and block the
+providers from ever installing. The split plus `dependsOn` guarantees the CRDs
+exist before the agents are validated.
 
 Access model:
 
@@ -64,7 +72,8 @@ clusters/flux-bao-test/
   flux-instance.yaml        # FluxInstance pointing Flux at this repo
   infra-controllers.yaml    # Flux Kustomization -> ./infrastructure/controllers
   infra-configs.yaml        # Flux Kustomization -> ./infrastructure/configs
-  apps.yaml                 # Flux Kustomization -> ./apps
+  apps-platform.yaml        # Flux Kustomization -> ./apps/platform (kagent + Ollama)
+  apps.yaml                 # Flux Kustomization -> ./apps (depends on apps-platform)
 
 infrastructure/controllers/
   kustomization.yaml        # explicit Kustomize resource list
@@ -85,15 +94,23 @@ infrastructure/configs/
   kagent-namespace.yaml     # kagent namespace (needed by ingress-kagent and the apps layer)
   ingress-kagent.yaml       # Traefik Ingress for kagent UI + kagent MCP
 
+apps/platform/
+  kustomization.yaml        # explicit Kustomize resource list
+  kagent.yaml               # kagent CRDs + kagent HelmReleases
+  ollama.yaml               # in-cluster Ollama Deployment/PVC/Service
+
 apps/
   kustomization.yaml        # explicit Kustomize resource list
   podinfo.yaml              # podinfo HelmRepository + HelmRelease + PDB
   podinfo-ingress.yaml      # Traefik Ingress for podinfo
-  kagent.yaml               # kagent CRDs + kagent HelmReleases
-  ollama.yaml               # in-cluster Ollama Deployment/PVC/Service
-  kagent-modelconfig.yaml   # kagent Ollama ModelConfig, qwen2.5:3b, num_ctx=8192
+  kagent-modelconfig.yaml   # kagent Ollama ModelConfig, qwen3:4b, num_ctx=8192
   kagent-reader-agent.yaml  # lab-k8s-reader kagent Agent
   kagent-coordinator-agent.yaml # lab-coordinator kagent Agent
+
+test/ai/
+  README.md                 # model benchmark background and workflow
+  bench_tool_calls.py       # Ollama tool-calling benchmark (kagent tool name)
+  test_delegation.py        # end-to-end coordinator -> reader A2A test
 
 scripts/
   metallb-hosts.zsh         # prints copy/paste /etc/hosts block
@@ -484,7 +501,7 @@ cp openbao-init.json ~/openbao-init.backup.json
 
 ### 11.1 kagent install
 
-`apps/kagent.yaml` installs kagent through Helm and exposes both the UI and MCP/API path through direct MetalLB services. It lives in the `apps` layer so its `LoadBalancer` services are created after the MetalLB pool from `infra-configs` exists:
+`apps/platform/kagent.yaml` installs kagent through Helm and exposes both the UI and MCP/API path through direct MetalLB services. It lives in the `apps-platform` layer so its `LoadBalancer` services are created after the MetalLB pool from `infra-configs` exists, and so its CRDs are installed before the `apps` layer applies the Agent and ModelConfig resources:
 
 | Item | Purpose |
 |---|---|
