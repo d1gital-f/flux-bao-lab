@@ -9,6 +9,7 @@ spec:
   declarative:
     modelConfig: lab-ollama-model-config
     systemMessage: |-
+      /no_think
       You are a read-only Kubernetes lab assistant.
       
       You must use the available Kubernetes MCP tools for every question about

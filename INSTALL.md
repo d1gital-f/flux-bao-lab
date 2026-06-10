@@ -103,7 +103,7 @@ apps/
   kustomization.yaml        # explicit Kustomize resource list
   podinfo.yaml              # podinfo HelmRepository + HelmRelease + PDB
   podinfo-ingress.yaml      # Traefik Ingress for podinfo
-  kagent-modelconfig.yaml   # kagent Ollama ModelConfig, qwen3:4b, num_ctx=8192
+  kagent-modelconfig.yaml   # kagent Ollama ModelConfig, llama3.2, num_ctx=8192
   kagent-reader-agent.yaml  # lab-k8s-reader kagent Agent
   kagent-coordinator-agent.yaml # lab-coordinator kagent Agent
 
@@ -558,14 +558,14 @@ That means the route reaches kagent. It is not a failure.
 
 ### 11.3 Ollama
 
-Ollama is installed by `apps/ollama.yaml`:
+Ollama is installed by `apps/platform/ollama.yaml`:
 
 ```text
 Deployment:  ollama
 Image:       ollama/ollama:0.30.7
 PVC:         ollama-data, 10Gi
 Service:     ollama.kagent.svc.cluster.local:11434
-Model:       qwen2.5:3b pulled by postStart hook
+Model:       llama3.2 pulled by postStart hook
 Concurrency: one loaded model and one parallel request to reduce RAM spikes
 ```
 
@@ -580,7 +580,7 @@ kubectl -n kagent exec deploy/ollama -- ollama list
 If needed:
 
 ```zsh
-kubectl -n kagent exec deploy/ollama -- ollama pull qwen2.5:3b
+kubectl -n kagent exec deploy/ollama -- ollama pull llama3.2
 ```
 
 Test API from inside the cluster:
@@ -596,7 +596,7 @@ Direct model test:
 
 ```zsh
 kubectl -n kagent exec deploy/ollama -- \
-  ollama run qwen2.5:3b "Reply with only: ok"
+  ollama run llama3.2 "Reply with only: ok"
 ```
 
 ### 11.4 kagent ModelConfig
@@ -616,7 +616,7 @@ metadata:
   name: lab-ollama-model-config
   namespace: kagent
 spec:
-  model: qwen2.5:3b
+  model: llama3.2
   provider: Ollama
   ollama:
     host: http://ollama.kagent.svc.cluster.local:11434
@@ -1004,7 +1004,7 @@ kubectl -n kagent run ollama-check --rm -it \
   -- curl -s http://ollama.kagent.svc.cluster.local:11434/api/tags
 ```
 
-Expected: `qwen2.5:3b` is listed.
+Expected: `llama3.2` is listed.
 
 ### Agent disconnects mid-request
 
@@ -1117,7 +1117,7 @@ kagent:
 
 Ollama:
   ollama pod Running
-  qwen2.5:3b available
+  llama3.2 available
   num_ctx=8192
 
 Claude Desktop:
@@ -1128,9 +1128,9 @@ Claude Desktop:
 
 ---
 
-## 17. Latest repo addendum: coordinator, qwen2.5, and stable Ollama settings
+## 17. Latest repo addendum: coordinator, llama3.2, and stable Ollama settings
 
-This section records the current coordinator-specific repository state and validation steps. The main install flow above already reflects the current `qwen2.5:3b` model configuration.
+This section records the current coordinator-specific repository state and validation steps. The main install flow above already reflects the current `llama3.2` model configuration.
 
 ### 17.1 Current kagent agents
 
@@ -1157,9 +1157,11 @@ resources:
   - kagent-reader-agent.yaml
   - kagent-coordinator-agent.yaml
   - kagent-modelconfig.yaml
-  - kagent.yaml
-  - ollama.yaml
 ```
+
+`kagent.yaml` and `ollama.yaml` live in `apps/platform/` with their own
+Kustomize list, reconciled by the `apps-platform` Flux Kustomization before
+`apps` (see section 1: CRD providers and consumers must be split).
 
 Expected agents after reconciliation:
 
@@ -1215,7 +1217,7 @@ Claude Desktop
 
 ### 17.3 Current Ollama model config
 
-The current `apps/kagent-modelconfig.yaml` uses `qwen2.5:3b`:
+The current `apps/kagent-modelconfig.yaml` uses `llama3.2`:
 
 ```yaml
 apiVersion: kagent.dev/v1alpha2
@@ -1224,7 +1226,7 @@ metadata:
   name: lab-ollama-model-config
   namespace: kagent
 spec:
-  model: qwen2.5:3b
+  model: llama3.2
   provider: Ollama
   ollama:
     host: http://ollama.kagent.svc.cluster.local:11434
@@ -1248,11 +1250,11 @@ lab-ollama-model-config
 
 ### 17.4 Current Ollama deployment behavior
 
-The current `apps/ollama.yaml` pins the Ollama image and pulls `qwen2.5:3b` through the container lifecycle hook:
+The current `apps/platform/ollama.yaml` pins the Ollama image and pulls `llama3.2` through the container lifecycle hook:
 
 ```text
 image: ollama/ollama:0.30.7
-model pulled: qwen2.5:3b
+model pulled: llama3.2
 ```
 
 It also limits concurrency to reduce memory spikes on the small Multipass worker nodes:
@@ -1276,13 +1278,13 @@ kubectl -n kagent exec deploy/ollama -- ollama list
 Expected model:
 
 ```text
-qwen2.5:3b
+llama3.2
 ```
 
 If the model is missing:
 
 ```zsh
-kubectl -n kagent exec deploy/ollama -- ollama pull qwen2.5:3b
+kubectl -n kagent exec deploy/ollama -- ollama pull llama3.2
 ```
 
 Test the model API from inside the cluster:
@@ -1388,7 +1390,7 @@ Confirm the latest pushed repository contains the coordinator and qwen model con
 
 ```zsh
 grep -n 'kagent-coordinator-agent.yaml' apps/kustomization.yaml
-grep -n 'qwen2.5:3b' apps/kagent-modelconfig.yaml apps/ollama.yaml
+grep -n 'llama3.2' apps/kagent-modelconfig.yaml apps/platform/ollama.yaml
 ```
 
 ### 18.2 Wipe the cluster
@@ -1476,7 +1478,7 @@ kubectl -n kagent get agent lab-coordinator -o jsonpath='{range .status.conditio
 Expected:
 
 ```text
-qwen2.5:3b available in Ollama
+llama3.2 available in Ollama
 lab-ollama-model-config present
 lab-k8s-reader Accepted=True Ready=True
 lab-coordinator Accepted=True Ready=True

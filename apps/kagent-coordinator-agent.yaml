@@ -9,6 +9,7 @@ spec:
   declarative:
     modelConfig: lab-ollama-model-config
     systemMessage: |-
+      /no_think
       You are the lab coordinator agent.
 
       Your job is to own the plan, delegate factual cluster inspection to specialist agents,
